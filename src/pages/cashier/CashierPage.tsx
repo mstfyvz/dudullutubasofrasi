@@ -19,6 +19,7 @@ import { getTableDisplayName, getMergedTableDisplayName } from '../../utils/tabl
 import toast from 'react-hot-toast';
 import TableTransferModal from '../../components/shared/TableTransferModal';
 import ReceiptModal from '../../components/cashier/ReceiptModal';
+import { usePrinterStore } from '../../stores/printerStore';
 import type { Order, OrderItem, Table } from '../../types';
 
 type Tab = 'tables' | 'takeaway' | 'debts';
@@ -35,6 +36,13 @@ const STATUS_COLOR: Record<string, string> = {
   ready:     'bg-green-100 text-green-700',
   delivered: 'bg-purple-100 text-purple-700',
 };
+const PRINTER_TEST_STATIONS = [
+  { id: 'station1', label: 'Fırın' },
+  { id: 'station2', label: 'Izgara' },
+  { id: 'station3', label: 'Kasa' },
+  { id: 'station4', label: 'Burger' },
+  { id: 'station5', label: 'Tatlı' },
+];
 
 function toDate(v: unknown): Date {
   if (v && typeof v === 'object' && 'toDate' in v) return (v as { toDate: () => Date }).toDate();
@@ -53,6 +61,7 @@ export default function CashierPage({ mode }: Props = {}) {
   const { tables, subscribe, newSession } = useTableStore();
   const { products, categories, subscribe: subProducts, subscribeCategories } = useProductStore();
   const { settings, subscribe: subSettings } = useSettingsStore();
+  const { settings: printerSettings, subscribe: subscribePrinterSettings } = usePrinterStore();
   const { user } = useAuthStore();
   const cashierLadiesOnly = !!user?.roles.includes('cashier_ladies') && !user.roles.includes('cashier') && !user.roles.includes('admin');
   const isLadiesView = mode === 'ladies' || location.pathname.endsWith('/ladies') || cashierLadiesOnly;
@@ -77,6 +86,7 @@ export default function CashierPage({ mode }: Props = {}) {
   const [confirmCloseTakeaway, setConfirmCloseTakeaway] = useState<{ order: Order; finalAmount?: number } | null>(null);
   const [closeTakeawayAfterPrint, setCloseTakeawayAfterPrint] = useState(false);
   const [sectionFilter, setSectionFilter] = useState<'all' | 'normal' | 'family' | 'ladies'>('all');
+  const [testingPrinter, setTestingPrinter] = useState<string | null>(null);
 
   // Discount
   const [applyDiscount, setApplyDiscount] = useState(false);
@@ -107,8 +117,9 @@ export default function CashierPage({ mode }: Props = {}) {
     const u3 = subscribeCategories();
     const u4 = subSettings();
     const u5 = subscribeDebts(isLadiesView ? 'ladies' : undefined);
-    return () => { u1(); u2(); u3(); u4(); u5(); };
-  }, [isLadiesView, subscribe, subProducts, subscribeCategories, subSettings, subscribeDebts]);
+    const u6 = subscribePrinterSettings();
+    return () => { u1(); u2(); u3(); u4(); u5(); u6(); };
+  }, [isLadiesView, subscribe, subProducts, subscribeCategories, subSettings, subscribeDebts, subscribePrinterSettings]);
 
   useEffect(() => {
     const filters = [
@@ -499,6 +510,59 @@ export default function CashierPage({ mode }: Props = {}) {
       || debt.tableLabel.toLocaleLowerCase('tr-TR').includes(search);
   });
 
+  const handleTestPrinter = async (station: typeof PRINTER_TEST_STATIONS[number]) => {
+    const printerName = printerSettings.stationMapping?.[station.id]?.trim();
+    if (!printerName) {
+      toast.error(`${station.label} istasyonuna yazıcı atanmamış.`);
+      return;
+    }
+
+    setTestingPrinter(station.id);
+    try {
+      const requestRef = await addDoc(collection(db, 'cashierPrintRequests'), {
+        station: station.id,
+        testPrint: true,
+        status: 'pending',
+        createdAt: serverTimestamp(),
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        let isDone = false;
+        let unsubscribe = () => {};
+        const finish = (error?: Error) => {
+          if (isDone) return;
+          isDone = true;
+          clearTimeout(timer);
+          unsubscribe();
+          if (error) reject(error);
+          else resolve();
+        };
+        const timer = setTimeout(() => {
+          finish(new Error(`${station.label} yazıcısından yanıt alınamadı.`));
+        }, 15000);
+
+        unsubscribe = onSnapshot(
+          doc(db, 'cashierPrintRequests', requestRef.id),
+          (snapshot) => {
+            if (!snapshot.exists() || isDone) return;
+            const result = snapshot.data();
+            if (result.status === 'completed') {
+              toast.success(`${station.label} test fişi ${result.printer || printerName} kuyruğuna gönderildi.`);
+              finish();
+            } else if (result.status === 'error') {
+              finish(new Error(result.errorMessage || `${station.label} yazıcısına test fişi gönderilemedi.`));
+            }
+          },
+          (error) => finish(error),
+        );
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Test fişi gönderilemedi.');
+    } finally {
+      setTestingPrinter(null);
+    }
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="p-4 sm:p-6">
@@ -521,6 +585,32 @@ export default function CashierPage({ mode }: Props = {}) {
           )}
         </button>
       </div>
+
+      <section className="mb-5 rounded-xl border border-gray-200 bg-white p-4">
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-gray-900">Yazıcı Testi</h2>
+          <p className="text-xs text-gray-500">Test fişi basar; masa veya sipariş oluşturmaz.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          {PRINTER_TEST_STATIONS.map((station) => {
+            const printerName = printerSettings.stationMapping?.[station.id]?.trim();
+            const isTesting = testingPrinter === station.id;
+            return (
+              <button
+                key={station.id}
+                type="button"
+                onClick={() => handleTestPrinter(station)}
+                disabled={!printerName || testingPrinter !== null}
+                title={printerName ? `${station.label}: ${printerName}` : `${station.label} yazıcısı atanmamış`}
+                className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Printer className="h-4 w-4" />
+                {isTesting ? 'Gönderiliyor…' : `${station.label} Test`}
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
       {/* Masalar */}
       {tab === 'tables' && ((isLadiesView ? ladiesBills : bills).length === 0 ? (

@@ -7,12 +7,14 @@ const windowsPrinter = process.platform === 'win32' ? require('./windowsPrinter'
 const {
   formatCashierReceipt,
   formatKitchenReceipt,
+  formatPrinterTestReceipt,
   isValidCashierReceipt,
 } = require('./receiptFormatter');
 const { groupItemsByStation, getUnacknowledgedStations } = require('./kitchenRouting');
 const { reserveReceiptNumbers } = require('./receiptNumber');
-const { readBridgeConfig, handlesStation, getPrinterName } = require('./bridgeConfig');
+const { STATIONS, readBridgeConfig, handlesStation, getPrinterName } = require('./bridgeConfig');
 const bridgeConfig = readBridgeConfig();
+const HEARTBEAT_INTERVAL_MS = 60_000;
 
 // ─── Firebase Admin Setup ────────────────────────────────────────────────────
 const serviceAccount = require('./serviceAccountKey.json');
@@ -28,7 +30,6 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
-app.use(express.json());
 
 // Health check
 app.get('/', (req, res) => {
@@ -50,38 +51,6 @@ app.get('/printers', (req, res) => {
       console.error('Yazıcı listesi alınamadı:', err);
       res.status(500).json({ error: 'Yazıcı listesi alınamadı' });
     });
-});
-
-app.post('/print/cashier', async (req, res) => {
-  const receipts = req.body?.receipts;
-  if (
-    !Array.isArray(receipts)
-    || receipts.length === 0
-    || receipts.length > 20
-    || receipts.some((receipt) => !isValidCashierReceipt(receipt))
-  ) {
-    return res.status(400).json({ error: 'Geçersiz fiş içeriği.' });
-  }
-
-  if (!handlesStation(bridgeConfig, 'station3')) {
-    return res.status(409).json({ error: 'Bu bridge Kasa istasyonu için yapılandırılmamış.' });
-  }
-
-  const printerName = getPrinterName(bridgeConfig, printerSettings, 'station3');
-  if (!printerName) {
-    return res.status(400).json({ error: 'Kasa yazıcısı bridge ayarlarında yapılandırılmamış.' });
-  }
-
-  try {
-    const receiptNumbers = await reserveReceiptNumbers(db, receipts.length);
-    const printData = Buffer.concat(receipts.map((receipt, index) =>
-      formatCashierReceipt({ ...receipt, receiptNumber: receiptNumbers[index] })));
-    await printReceipt(printerName, printData);
-    res.json({ printed: receipts.length, printer: printerName, receiptNumbers });
-  } catch (err) {
-    console.error('Kasa fişi yazdırılamadı:', err);
-    res.status(500).json({ error: 'Kasa yazıcısına fiş gönderilemedi.' });
-  }
 });
 
 app.listen(PORT, () => {
@@ -160,7 +129,7 @@ async function startFirestoreListener() {
     });
 
   // Heartbeat interval
-  setInterval(sendHeartbeat, 10000);
+  setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
   sendHeartbeat();
 
   // Listen to cashier print requests
@@ -169,18 +138,20 @@ async function startFirestoreListener() {
 
 // ─── Bridge Heartbeat ────────────────────────────────────────────────────────
 async function sendHeartbeat() {
-  if (!bridgeConfig.station) return;
   try {
     const printers = await listPrinters();
-    const printerName = getPrinterName(bridgeConfig, printerSettings, bridgeConfig.station) || bridgeConfig.printerName;
-    await db.doc(`bridgeStatus/${bridgeConfig.station}`).set({
-      station: bridgeConfig.station,
-      printerName: printerName || '',
-      availablePrinters: printers,
-      online: true,
-      lastPing: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: new Date().toISOString(),
-    }, { merge: true });
+    const stations = bridgeConfig.station ? [bridgeConfig.station] : STATIONS;
+    await Promise.all(stations.map((station) => {
+      const printerName = getPrinterName(bridgeConfig, printerSettings, station);
+      return db.doc(`bridgeStatus/${station}`).set({
+        station,
+        printerName: printerName || '',
+        availablePrinters: printers,
+        online: true,
+        lastPing: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+    }));
   } catch (err) {
     console.error('Heartbeat gönderilemedi:', err.message);
   }
@@ -225,8 +196,14 @@ async function handleFirestoreCashierPrintRequest(docRef, reqData) {
       return;
     }
 
+    const isTestPrint = reqData.testPrint === true;
     const receipts = reqData.receipts;
-    if (!Array.isArray(receipts) || receipts.length === 0) {
+    if (!isTestPrint && (
+      !Array.isArray(receipts)
+      || receipts.length === 0
+      || receipts.length > 20
+      || receipts.some((receipt) => !isValidCashierReceipt(receipt))
+    )) {
       await docRef.update({
         status: 'error',
         errorMessage: 'Geçersiz fiş içeriği.',
@@ -235,15 +212,23 @@ async function handleFirestoreCashierPrintRequest(docRef, reqData) {
       return;
     }
 
-    const receiptNumbers = await reserveReceiptNumbers(db, receipts.length);
-    const printData = Buffer.concat(receipts.map((receipt, index) =>
-      formatCashierReceipt({ ...receipt, receiptNumber: receiptNumbers[index] })));
+    const receiptCount = isTestPrint ? 1 : receipts.length;
+    const receiptNumbers = await reserveReceiptNumbers(db, receiptCount);
+    const printData = isTestPrint
+      ? formatPrinterTestReceipt({
+        station: targetStation,
+        receiptNumber: receiptNumbers[0],
+        printedAt: new Date().toLocaleString('tr-TR'),
+      })
+      : Buffer.concat(receipts.map((receipt, index) =>
+        formatCashierReceipt({ ...receipt, receiptNumber: receiptNumbers[index] })));
     await printReceipt(printerName, printData);
 
     await docRef.update({
       status: 'completed',
       printer: printerName,
       receiptNumbers,
+      testPrint: isTestPrint,
       printedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     console.log(`✓ Firestore üzerinden kasa fişi yazdırıldı (${receipts.length} fiş)`);
@@ -274,7 +259,7 @@ async function handleKitchenPrintRequest(order) {
 
   const stations = bridgeConfig.station
     ? [bridgeConfig.station]
-    : ['station1', 'station2', 'station4'];
+    : ['station1', 'station2', 'station4', 'station5'];
   const unhandledStations = getUnacknowledgedStations(order, stations);
   if (unhandledStations.length === 0) return;
 

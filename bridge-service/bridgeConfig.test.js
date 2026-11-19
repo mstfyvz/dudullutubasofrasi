@@ -12,7 +12,7 @@ test('requires a valid station and local printer queue for station-specific brid
     /PRINTER_NAME/,
   );
   assert.throws(
-    () => readBridgeConfig({ BRIDGE_STATION: 'station5', PRINTER_NAME: 'Kitchen' }),
+    () => readBridgeConfig({ BRIDGE_STATION: 'station6', PRINTER_NAME: 'Kitchen' }),
     /BRIDGE_STATION geçersiz/,
   );
   assert.deepEqual(
@@ -22,6 +22,10 @@ test('requires a valid station and local printer queue for station-specific brid
   assert.deepEqual(
     readBridgeConfig({ BRIDGE_STATION: 'station4', PRINTER_NAME: 'Burger_Printer' }),
     { station: 'station4', printerName: 'Burger_Printer' },
+  );
+  assert.deepEqual(
+    readBridgeConfig({ BRIDGE_STATION: 'station5', PRINTER_NAME: 'Dessert_Printer' }),
+    { station: 'station5', printerName: 'Dessert_Printer' },
   );
 });
 
@@ -43,6 +47,10 @@ test('station-specific bridges only handle their own station and local printer',
 
 test('legacy bridge uses shared printer mapping when no station is configured', () => {
   const legacyBridge = readBridgeConfig({});
+  assert.deepEqual(
+    readBridgeConfig({ PRINTER_NAME: 'Old_Station_Printer' }),
+    { station: null, printerName: null },
+  );
   assert.equal(
     getPrinterName(legacyBridge, { stationMapping: { station1: 'Oven_Queue' } }, 'station1'),
     'Oven_Queue',

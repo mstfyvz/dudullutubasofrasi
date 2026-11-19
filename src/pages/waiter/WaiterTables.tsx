@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { LayoutGrid, QrCode, X, Download, ClipboardList, ArrowLeftRight, Split, Plus, Minus } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
+import { db } from '../../lib/firebase';
 import { useAuthStore } from '../../stores/authStore';
 import { useTableStore } from '../../stores/tableStore';
 import { useProductStore } from '../../stores/productStore';
@@ -19,6 +21,8 @@ export default function WaiterTables() {
   const [orderTable, setOrderTable] = useState<Table | null>(null);
   const [transferTable, setTransferTable] = useState<Table | null>(null);
   const [activeTab, setActiveTab] = useState<'normal' | 'family' | 'ladies'>('normal');
+  const [activeTableIds, setActiveTableIds] = useState<Set<string>>(new Set());
+  const [activeOrdersLoaded, setActiveOrdersLoaded] = useState(false);
   const [splitTableTarget, setSplitTableTarget] = useState<Table | null>(null);
   const [splitCapacities, setSplitCapacities] = useState<number[]>([]);
   const baseUrl = window.location.origin;
@@ -36,6 +40,25 @@ export default function WaiterTables() {
   const selectedSection = hasLadiesRole && !hasRegularWaiterRole && !isAdmin ? 'ladies' : activeTab;
   const ladiesOnly = !isAdmin && hasLadiesRole && !hasRegularWaiterRole;
   const visibleTables = tables.filter((table) => !ladiesOnly || table.section === 'ladies');
+
+  useEffect(() => {
+    setActiveOrdersLoaded(false);
+    const activeOrdersQuery = query(
+      collection(db, 'orders'),
+      where('type', '==', 'table'),
+      where('tableSection', '==', selectedSection),
+      where('status', 'in', ['pending', 'preparing', 'ready', 'delivered']),
+    );
+    return onSnapshot(activeOrdersQuery, (snapshot) => {
+      setActiveTableIds(new Set(snapshot.docs
+        .map((order) => order.data().tableId)
+        .filter((tableId): tableId is string => typeof tableId === 'string')));
+      setActiveOrdersLoaded(true);
+    }, (error) => {
+      console.error('Aktif masa siparişleri alınamadı:', error);
+      setActiveOrdersLoaded(false);
+    });
+  }, [selectedSection]);
 
   // Filter tables by active tab
   const filteredTables = visibleTables.filter((t) =>
@@ -93,6 +116,16 @@ export default function WaiterTables() {
       {/* All tables grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
         {filteredTables.map((table) => {
+          const hasActiveOrder = activeTableIds.has(table.id)
+            || (table.mergedIntoId
+              ? activeTableIds.has(table.mergedIntoId)
+              : table.mergedTableIds?.some((tableId) => activeTableIds.has(tableId)) ?? false);
+          const tableWithLiveStatus = {
+            ...table,
+            status: activeOrdersLoaded
+              ? hasActiveOrder ? 'occupied' as const : 'available' as const
+              : table.status,
+          };
           return (
             <div
               key={table.id}
@@ -104,14 +137,14 @@ export default function WaiterTables() {
                   <button onClick={() => setQrTable(table)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400" title="QR Göster">
                     <QrCode className="w-4 h-4" />
                   </button>
-                  <span className={`badge text-xs ${tableStatusColor(table.status)}`}>
-                    {tableStatusLabel(table.status)}
+                  <span className={`badge text-xs ${tableStatusColor(tableWithLiveStatus.status)}`}>
+                    {tableStatusLabel(tableWithLiveStatus.status)}
                   </span>
                 </div>
               </div>
               <p className="text-xs text-gray-400">{table.capacity} kişilik</p>
               <button
-                onClick={() => setOrderTable(table)}
+                onClick={() => setOrderTable(tableWithLiveStatus)}
                 className="w-full flex items-center justify-center gap-1.5 bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs font-semibold py-2 rounded-xl transition-colors"
               >
                 <ClipboardList className="w-3.5 h-3.5" />
@@ -145,9 +178,9 @@ export default function WaiterTables() {
                   Bölünmeyi Kaldır
                 </button>
               )}
-              {table.status === 'occupied' && (
+              {tableWithLiveStatus.status === 'occupied' && (
                 <button
-                  onClick={() => setTransferTable(table)}
+                  onClick={() => setTransferTable(tableWithLiveStatus)}
                   disabled={!!table.parentTableId}
                   className="w-full flex items-center justify-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold py-2 rounded-xl transition-colors"
                 >

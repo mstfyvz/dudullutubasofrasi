@@ -10,7 +10,10 @@ const KITCHEN_STATIONS = [
   { id: 'station2', label: 'Izgara' },
   { id: 'station3', label: 'Kasa' },
   { id: 'station4', label: 'Burger' },
+  { id: 'station5', label: 'Tatlı' },
 ];
+const BRIDGE_ONLINE_TIMEOUT_MS = 90_000;
+const BRIDGE_STATUS_REFRESH_MS = 10_000;
 
 type BridgeCheck = {
   status: 'connected' | 'error';
@@ -18,11 +21,12 @@ type BridgeCheck = {
 };
 
 export default function AdminSettings() {
-  const { settings, subscribe, update, fetchAvailablePrinters } = usePrinterStore();
+  const { settings, subscribe, update, fetchAvailablePrinters, availablePrinters } = usePrinterStore();
   const [saving, setSaving] = useState(false);
   const [testingStation, setTestingStation] = useState<string | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [bridgeUrls, setBridgeUrls] = useState<Record<string, string>>({});
+  const [stationMapping, setStationMapping] = useState<Record<string, string>>({});
   const [bridgeChecks, setBridgeChecks] = useState<Record<string, BridgeCheck>>({});
   const [lastReceiptNumber, setLastReceiptNumber] = useState<number | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -41,7 +45,7 @@ export default function AdminSettings() {
         else if (data.lastPing && typeof data.lastPing === 'object' && 'toDate' in data.lastPing) pingDate = (data.lastPing as { toDate: () => Date }).toDate();
         else if (data.lastPing instanceof Date) pingDate = data.lastPing;
 
-        const isOnline = pingDate ? (Date.now() - pingDate.getTime() < 35000) : false;
+        const isOnline = pingDate ? (Date.now() - pingDate.getTime() < BRIDGE_ONLINE_TIMEOUT_MS) : false;
         statuses[docSnap.id] = {
           online: isOnline,
           printerName: data.printerName,
@@ -52,6 +56,25 @@ export default function AdminSettings() {
       setLiveBridgeStatuses(statuses);
     });
     return unsub;
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const currentTime = Date.now();
+      setLiveBridgeStatuses((previous) => {
+        let changed = false;
+        const next = Object.entries(previous).map(([stationId, status]) => {
+          const online = !!status.lastPingDate
+            && currentTime - status.lastPingDate.getTime() < BRIDGE_ONLINE_TIMEOUT_MS;
+          if (online === status.online) return [stationId, status] as const;
+          changed = true;
+          return [stationId, { ...status, online }] as const;
+        });
+        return changed ? Object.fromEntries(next) : previous;
+      });
+    }, BRIDGE_STATUS_REFRESH_MS);
+
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -81,7 +104,16 @@ export default function AdminSettings() {
         settings.bridgeUrls ? '' : settings.bridgeUrl || 'http://localhost:3001'
       ),
     ])));
+    setStationMapping(Object.fromEntries(KITCHEN_STATIONS.map(({ id }) => [
+      id,
+      settings.stationMapping?.[id] ?? '',
+    ])));
   }, [settings]);
+
+  const allAvailablePrinters = Array.from(new Set([
+    ...availablePrinters,
+    ...Object.values(liveBridgeStatuses).flatMap((status) => status.availablePrinters ?? []),
+  ]));
 
   const handleTestConnection = async (stationId: string) => {
     const stationLabel = KITCHEN_STATIONS.find((station) => station.id === stationId)?.label ?? stationId;
@@ -99,18 +131,6 @@ export default function AdminSettings() {
     });
 
     const liveStatus = liveBridgeStatuses[stationId];
-    if (liveStatus && liveStatus.online) {
-      const printerInfo = liveStatus.printerName ? `Abonelik yazıcısı: ${liveStatus.printerName}. ` : '';
-      const listInfo = liveStatus.availablePrinters?.length ? `Yerel yazıcılar: ${liveStatus.availablePrinters.join(', ')}` : '';
-      const message = `Çevrimiçi! (Firestore üzerinden doğrulandı). ${printerInfo}${listInfo}`;
-      setBridgeChecks((previous) => ({
-        ...previous,
-        [stationId]: { status: 'connected', message },
-      }));
-      toast.success(`${stationLabel} Bridge servisi çevrimiçi (Aktif).`);
-      setTestingStation(null);
-      return;
-    }
 
     try {
       const [healthResponse, printers] = await Promise.all([
@@ -119,14 +139,19 @@ export default function AdminSettings() {
       ]);
       if (!healthResponse.ok) throw new Error('Bridge servise ulaşılamadı.');
       const health: { station?: unknown; printer?: unknown } = await healthResponse.json();
-      if (health.station !== stationId) {
+      const isCentralBridge = health.station === null;
+      if (health.station !== stationId && !isCentralBridge) {
         throw new Error('Bu bilgisayardaki Bridge yanlış istasyona ayarlı. BRIDGE_STATION değerini kontrol edin.');
       }
-      if (typeof health.printer !== 'string' || !printers.includes(health.printer)) {
-        throw new Error('Bridge’in PRINTER_NAME yazıcısı bu bilgisayarda görünmüyor. Yerel yazıcı kuyruğunu ve USB bağlantısını kontrol edin.');
+      const printerName = isCentralBridge ? stationMapping[stationId]?.trim() : health.printer;
+      if (typeof printerName !== 'string' || !printerName) {
+        throw new Error('Bu istasyona henüz bir Windows yazıcı kuyruğu atanmadı.');
+      }
+      if (!printers.includes(printerName)) {
+        throw new Error(`${printerName} Windows yazıcı listesinde görünmüyor. Yazıcı kuyruğunu ve ağ bağlantısını kontrol edin.`);
       }
 
-      const message = `Bağlandı. İstasyon yazıcısı: ${health.printer}. Yerel yazıcılar: ${printers.join(', ')}`;
+      const message = `Bağlandı. İstasyon yazıcısı: ${printerName}. Yerel yazıcılar: ${printers.join(', ')}`;
       setBridgeChecks((previous) => ({
         ...previous,
         [stationId]: { status: 'connected', message },
@@ -134,8 +159,14 @@ export default function AdminSettings() {
       toast.success(`${stationLabel} Bridge bağlantısı başarılı.`);
     } catch (error) {
       let message = error instanceof Error ? error.message : 'Bridge servise bağlanılamadı.';
-      if (window.location.protocol === 'https:' && bridgeUrl.startsWith('http://')) {
-        message = 'Tarayıcınız HTTPS üzerinden yerel HTTP servisine (http://localhost:3001) doğrudan erişimi engelliyor (Mixed Content). Ancak bridge-service bilgisayarda açık olduğu sürece veritabanı (Firestore) üzerinden arka planda otomatik çalışmaya devam eder.';
+      if (
+        error instanceof TypeError
+        && window.location.protocol === 'https:'
+        && bridgeUrl.startsWith('http://')
+      ) {
+        message = liveStatus?.online
+          ? 'Firestore heartbeat Bridge’in çevrimiçi olduğunu gösteriyor; ancak tarayıcı HTTP kısıtı nedeniyle girilen URL ve yazıcı kuyruğu doğrulanamadı.'
+          : 'Tarayıcı HTTPS üzerinden HTTP Bridge adresini doğrulamayı engelledi. Firestore heartbeat gelmeden bu URL test edilemez.';
       }
       setBridgeChecks((previous) => ({
         ...previous,
@@ -155,6 +186,10 @@ export default function AdminSettings() {
         bridgeUrls: Object.fromEntries(KITCHEN_STATIONS.map(({ id }) => [
           id,
           bridgeUrls[id]?.trim().replace(/\/+$/, '') || '',
+        ])),
+        stationMapping: Object.fromEntries(KITCHEN_STATIONS.map(({ id }) => [
+          id,
+          stationMapping[id]?.trim() || '',
         ])),
       });
       toast.success('Ayarlar kaydedildi.');
@@ -206,7 +241,7 @@ export default function AdminSettings() {
       <div className="mb-6">
         <h1 className="text-xl font-bold text-gray-900 mb-1">Yazıcı Ayarları</h1>
         <p className="text-sm text-gray-500">
-          Her istasyonun yazıcısı farklı bilgisayara bağlıysa o bilgisayardaki Bridge adresini girin.
+          Tek bilgisayardaki Bridge adresini tüm istasyonlara girin ve her istasyon için Windows yazıcı kuyruğunu seçin.
         </p>
       </div>
 
@@ -226,7 +261,7 @@ export default function AdminSettings() {
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
-        <h2 className="font-semibold text-gray-900 mb-3">İstasyon → Bridge Bilgisayarı</h2>
+        <h2 className="font-semibold text-gray-900 mb-3">İstasyon → Windows Yazıcısı</h2>
         <div className="flex flex-col gap-5">
           {KITCHEN_STATIONS.map((station) => {
             const check = bridgeChecks[station.id];
@@ -246,7 +281,7 @@ export default function AdminSettings() {
                       [station.id]: event.target.value,
                     }))}
                     className="input flex-1"
-                    placeholder="http://192.168.1.50:3001"
+                    placeholder="http://192.168.1.160:3001"
                   />
                   <button
                     type="button"
@@ -258,8 +293,25 @@ export default function AdminSettings() {
                     Test
                   </button>
                 </div>
+                <label htmlFor={`printer-${station.id}`} className="block text-xs font-medium text-gray-600 mt-2 mb-1">
+                  Windows yazıcı kuyruğu
+                </label>
+                <select
+                  id={`printer-${station.id}`}
+                  value={stationMapping[station.id] ?? ''}
+                  onChange={(event) => setStationMapping((previous) => ({
+                    ...previous,
+                    [station.id]: event.target.value,
+                  }))}
+                  className="input"
+                >
+                  <option value="">Yazıcı seçin</option>
+                  {allAvailablePrinters.map((printer) => (
+                    <option key={printer} value={printer}>{printer}</option>
+                  ))}
+                </select>
                 <p className="text-xs text-gray-500 mt-1">
-                  Bu bilgisayardaki Bridge için `.env` içinde `BRIDGE_STATION={station.id}` ve yerel CUPS yazıcı adı `PRINTER_NAME` olarak ayarlanmalı.
+                  Test düğmesi Bridge bağlantısını kontrol eder; kuyruk adları Windows’taki yazıcı listesinden alınır.
                 </p>
                 {check && (
                   <div className={`flex items-start gap-2 mt-2 text-sm ${check.status === 'connected' ? 'text-green-600' : 'text-red-600'}`}>
@@ -279,13 +331,12 @@ export default function AdminSettings() {
         <div className="flex gap-3">
           <Printer className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-blue-900">
-            <p className="font-semibold mb-1">Her bilgisayarda bir kez yapılandırın</p>
+            <p className="font-semibold mb-1">Tek Bridge bilgisayarı</p>
             <ul className="list-disc list-inside space-y-1 text-blue-800">
-              <li>Bridge çalıştırılan bilgisayarda yazıcıyı ekleyip kuyruk adını `lpstat -p` ile bulun.</li>
-              <li>`bridge-service/.env` içinde o bilgisayar için `BRIDGE_STATION` ve `PRINTER_NAME` ayarlayın.</li>
-              <li>Bilgisayarın yerel IP adresi ve `:3001` portunu ilgili istasyon alanına yazın.</li>
-              <li>Bu bilgisayarlar aynı Firestore projesine bağlanır; her bridge yalnızca kendi istasyonunu yazdırır.</li>
-              <li>Kategorileri Ürünler sayfasında Fırın, Izgara veya Burger istasyonuna atayın.</li>
+              <li>Tüm ağ yazıcılarını Windows’a TCP/IP yazıcısı olarak ekleyin.</li>
+              <li>Aynı Windows bilgisayarının Bridge adresini tüm istasyonlara girin.</li>
+              <li>Bridge `.env` dosyasında `BRIDGE_STATION` ve `PRINTER_NAME` boş kalmalı; kuyrukları bu ekrandan seçin.</li>
+              <li>Kategorileri Ürünler sayfasında Fırın, Izgara, Burger veya Tatlı istasyonuna atayın.</li>
             </ul>
           </div>
         </div>

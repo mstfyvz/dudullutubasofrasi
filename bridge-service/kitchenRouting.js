@@ -6,7 +6,7 @@ function groupItemsByStation(items, categories = []) {
       || categories.find((candidate) => candidate.name === item.category);
     const station = category?.kitchenStation;
 
-    if (!['station1', 'station2', 'station4'].includes(station)) return;
+    if (!['station1', 'station2', 'station4', 'station5'].includes(station)) return;
     if (!grouped[station]) grouped[station] = [];
     grouped[station].push({ item, itemIndex });
   });

@@ -102,11 +102,31 @@ function formatKitchenReceipt({ order, item, station, receiptNumber }) {
   return Buffer.from(toPrinterText(lines.join('\n')), 'ascii');
 }
 
+function formatPrinterTestReceipt({ station, receiptNumber, printedAt }) {
+  if (station === 'station3') {
+    return formatCashierReceipt({
+      mode: 'item',
+      receiptNumber,
+      location: 'KASA YAZICI TEST',
+      printedAt,
+      items: [{ productName: 'YAZICI TEST', quantity: 1 }],
+    });
+  }
+
+  return formatKitchenReceipt({
+    order: { id: 'printer-test', tableNumber: 1, tableLabel: 'YAZICI TEST' },
+    item: { productName: 'YAZICI TEST', quantity: 1 },
+    station,
+    receiptNumber,
+  });
+}
+
 function getStationLabel(stationId) {
   const labels = {
     station1: 'FIRIN',
     station2: 'IZGARA',
     station4: 'BURGER',
+    station5: 'TATLI',
   };
   return labels[stationId] || stationId.toUpperCase();
 }
@@ -192,6 +212,7 @@ function toPrinterText(value) {
 module.exports = {
   formatCashierReceipt,
   formatKitchenReceipt,
+  formatPrinterTestReceipt,
   isValidCashierReceipt,
   toPrinterText,
 };

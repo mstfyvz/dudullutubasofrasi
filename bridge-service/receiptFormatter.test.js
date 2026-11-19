@@ -1,6 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { formatCashierReceipt, formatKitchenReceipt, isValidCashierReceipt } = require('./receiptFormatter');
+const {
+  formatCashierReceipt,
+  formatKitchenReceipt,
+  formatPrinterTestReceipt,
+  isValidCashierReceipt,
+} = require('./receiptFormatter');
 const { groupItemsByStation, getUnacknowledgedStations } = require('./kitchenRouting');
 const { reserveReceiptNumbers } = require('./receiptNumber');
 
@@ -71,6 +76,35 @@ test('labels burger station kitchen slips as BURGER', () => {
   assert.match(output.toString('ascii'), /BURGER/);
 });
 
+test('labels dessert station kitchen slips as TATLI', () => {
+  const output = formatKitchenReceipt({
+    order: { id: 'dessert-order', tableNumber: 8 },
+    item: { productName: 'Sütlaç', quantity: 1 },
+    station: 'station5',
+    receiptNumber: '00005',
+  });
+
+  assert.match(output.toString('ascii'), /TATLI/);
+});
+
+test('formats a printer test ticket for cashier and kitchen stations', () => {
+  const cashier = formatPrinterTestReceipt({
+    station: 'station3',
+    receiptNumber: '00006',
+    printedAt: '19.11.2026 10:00',
+  }).toString('ascii');
+  const dessert = formatPrinterTestReceipt({
+    station: 'station5',
+    receiptNumber: '00007',
+    printedAt: '19.11.2026 10:00',
+  }).toString('ascii');
+
+  assert.match(cashier, /KASA YAZICI TEST/);
+  assert.match(cashier, /YAZICI TEST x1/);
+  assert.match(dessert, /YAZICI TEST/);
+  assert.match(dessert, /TATLI/);
+});
+
 test('wraps long product names to fit the 80mm receipt width', () => {
   const output = formatCashierReceipt({
     mode: 'item',
@@ -104,18 +138,20 @@ test('rejects invalid cashier receipt payloads', () => {
   }), true);
 });
 
-test('routes oven, grill, and burger products as separate item tickets', () => {
+test('routes oven, grill, burger, and dessert products as separate item tickets', () => {
   const items = [
     { productName: 'Pide', categoryId: 'oven' },
     { productName: 'Kebap', categoryId: 'grill' },
     { productName: 'Çay', categoryId: 'cashier' },
     { productName: 'Burger', categoryId: 'burger' },
+    { productName: 'Sütlaç', categoryId: 'dessert' },
   ];
   const categories = [
     { id: 'oven', kitchenStation: 'station1' },
     { id: 'grill', kitchenStation: 'station2' },
     { id: 'cashier', kitchenStation: 'station3' },
     { id: 'burger', kitchenStation: 'station4' },
+    { id: 'dessert', kitchenStation: 'station5' },
   ];
 
   const grouped = groupItemsByStation(items, categories);
@@ -124,6 +160,7 @@ test('routes oven, grill, and burger products as separate item tickets', () => {
   assert.deepEqual(grouped.station2, [{ item: items[1], itemIndex: 1 }]);
   assert.equal(grouped.station3, undefined);
   assert.deepEqual(grouped.station4, [{ item: items[3], itemIndex: 3 }]);
+  assert.deepEqual(grouped.station5, [{ item: items[4], itemIndex: 4 }]);
 });
 
 test('does not throw when order categories are unavailable', () => {

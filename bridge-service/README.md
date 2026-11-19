@@ -65,6 +65,48 @@ Konsol çıktısı:
 npm run dev
 ```
 
+## 🖨️ Windows: Tek Bilgisayardan Ağ Yazıcıları
+
+Bu kurulumda tek Bridge bilgisayarı Firestore'u dinler ve sipariş fişlerini Windows yazıcı kuyrukları üzerinden ağ yazıcılarına yollar. Garson telefonlarının yazıcılara veya Bridge bilgisayarına doğrudan bağlanması gerekmez; telefonlar siparişi Firebase'e kaydeder.
+
+### 1. IP Adreslerini Sabitleyin
+
+Router'da DHCP rezervasyonu kullanarak adresleri sabitleyin. Bu kurulum için:
+
+- Bridge Windows PC: `192.168.1.160`
+- Kasa: `192.168.1.150`
+- Izgara: `192.168.1.151`
+- Fırın: `192.168.1.152`
+- Burger: `192.168.1.153`
+- Tatlı: `192.168.1.154`
+- Henüz kullanılmayan yazıcı: `192.168.1.155`
+
+IP'lerin router'ın DHCP havuzuyla çakışmadığını ve cihazların aynı LAN/VLAN'da olduğunu doğrulayın.
+
+### 2. Yazıcıları Windows'a Ekleyin
+
+Windows **Settings → Bluetooth & devices → Printers & scanners → Add device** bölümünden her yazıcıyı TCP/IP adresiyle ekleyin. Her cihaz için üretici/modelin desteklediği sürücüyü seçin ve Windows'ta ayırt edilebilir bir kuyruk adı verin (ör. `Kasa_150`, `Izgara_151`). Bridge IP'yi değil, Windows'ta kurulu kuyruk adını kullanır.
+
+`bridge-service/.env` dosyasında `BRIDGE_STATION` ve `PRINTER_NAME` boş bırakılmalıdır. Node.js 18+ ile bridge'i Windows PC'de başlatın:
+
+```powershell
+cd bridge-service
+npm install
+npm start
+```
+
+Windows Defender Firewall'da yerel ağdan TCP `3001` gelen bağlantısına izin verin.
+
+### 3. Admin Ayarlarını Yapın
+
+**Admin → Ayarlar → Yazıcı Ayarları** bölümünde beş istasyonun Bridge adresini `http://192.168.1.160:3001` yapın. Her satırdaki Test düğmesini kullanın; Windows kuyrukları göründükten sonra istasyon için ilgili kuyruğu seçin ve ayarları kaydedin. Eşleştirme `.150` Kasa, `.151` Izgara, `.152` Fırın, `.153` Burger ve `.154` Tatlı'dır. `.155` listelenir ama bir istasyona atanıncaya kadar sipariş almaz.
+
+Ürün kategorilerini **Admin → Ürünler** bölümünde Fırın, Izgara, Burger veya Tatlı istasyonuna atayın. Kasa fişleri kasiyer ekranından Kasa istasyonuna gider.
+
+### 4. Sipariş Akışı
+
+Garson siparişi telefondan Firebase'e kaydeder. Bridge Windows PC'de Firestore'u dinler, ürün kategorisine göre yazıcı kuyruğunu seçer ve fişi Windows Print Spooler üzerinden ilgili IP yazıcısına yollar. Telefonların Bridge PC ile aynı Wi-Fi'da olması gerekmez; Firebase'e internet erişimleri yeterlidir.
+
 ## 🖨️ macOS Yazıcı Yapılandırması
 
 ### 1. Yazıcıları macOS'a Ekleyin
@@ -86,7 +128,7 @@ BRIDGE_STATION=station1
 PRINTER_NAME=Gainscha_GA_E200
 ```
 
-`BRIDGE_STATION` değerleri: Fırın için `station1`, Izgara için `station2`, Kasa için `station3`, Burger için `station4`. `PRINTER_NAME`, yalnızca o bilgisayarda `lpstat -p` ile görünen yerel kuyruk adıdır. Her bilgisayarda aynı port kullanılabilir.
+`BRIDGE_STATION` değerleri: Fırın için `station1`, Izgara için `station2`, Kasa için `station3`, Burger için `station4`, Tatlı için `station5`. `PRINTER_NAME`, yalnızca o bilgisayarda `lpstat -p` ile görünen yerel kuyruk adıdır. Her bilgisayarda aynı port kullanılabilir.
 
 Örnek olarak Fırın bilgisayarında `BRIDGE_STATION=station1`, Izgara bilgisayarında `BRIDGE_STATION=station2`, Kasa bilgisayarında `BRIDGE_STATION=station3`, Burger bilgisayarında `BRIDGE_STATION=station4` kullanılır. Her birine bağlı yazıcının yerel kuyruk adını ayrıca girin. İstasyon başına birden fazla yazıcı gerekiyorsa aynı istasyon değeriyle birden fazla cihaz yapılandırması ayrıca desteklenmiyor; bu kurulumda tek bilgisayar/bridge/yerel kuyruk istasyon başınadır.
 
@@ -112,6 +154,7 @@ Bridge bilgisayarlarında işletim sistemi güvenlik duvarı varsa uygulamanın 
 - Fırın ürünleri → Fırın
 - Izgara ürünleri → Izgara
 - Burger ürünleri → Burger
+- Tatlı ürünleri → Tatlı
 - Mutfak fişi gerektirmeyen ürünler (ör. içecekler) → Yok
 
 Kasa fişi, ürün kategorisinden bağımsız olarak kasiyer ekranından manuel yazdırılır.
@@ -120,11 +163,11 @@ Kasa fişi, ürün kategorisinden bağımsız olarak kasiyer ekranından manuel 
 
 1. **Garson** yeni sipariş girer → Firestore'a kaydedilir
 2. Her Bridge yeni sipariş olayını alır
-3. Ürünler kategorilerine göre Fırın/Izgara/Burger olarak gruplandırılır
-4. Bridge, yalnızca `.env` içindeki `BRIDGE_STATION` ile eşleşen ürünleri işler; diğer istasyonları atlar
-5. Her ürün satırı için ayrı fiş oluşturup yalnızca o bilgisayarın `PRINTER_NAME` kuyruğuna gönderir
+3. Ürünler kategorilerine göre Fırın/Izgara/Burger/Tatlı olarak gruplandırılır
+4. `BRIDGE_STATION` ayarlıysa Bridge yalnızca o istasyonu işler; boşsa tüm istasyonlar için Firebase'deki kuyruk eşlemesini kullanır
+5. Her ürün satırı için ayrı fiş oluşturup ilgili Windows yazıcı kuyruğuna gönderir
 
-Bu istasyon filtresi sayesinde tüm Bridge bilgisayarları aynı Firestore siparişlerini dinlese de aynı sipariş kopya yazdırılmaz. Her bilgisayarda farklı `BRIDGE_STATION` kullanılması zorunludur.
+Birden fazla Bridge kullanılıyorsa her bilgisayarda farklı `BRIDGE_STATION` kullanın. Tek bilgisayarlı kurulumda bu değişkeni boş bırakın.
 
 **Örnek Sipariş:**
 ```
@@ -262,9 +305,9 @@ Health check; station-specific bridge için yapılandırılmış istasyonu da d�
 ```
 
 ### Kasa fişi yazdırma
-Kasa ekranındaki **Kasa Yazıcısında Yazdır** düğmesi, Admin → Ayarlar bölümündeki Kasa Bridge URL'sine `POST /print/cashier` isteği gönderir. İstek yalnızca `BRIDGE_STATION=station3` olarak yapılandırılmış Bridge tarafından kabul edilir ve `PRINTER_NAME` yerel kuyruğuna ESC/POS RAW olarak yollar. Ürün başına modunda fiyat yazdırılmaz; sipariş bazlı modda tutarlar yazdırılır.
+Kasa ekranındaki **Kasa Yazıcısında Yazdır** düğmesi, `cashierPrintRequests` koleksiyonuna yetkili kasiyer hesabıyla istek yazar ve sonucu Firestore'dan dinler. Bridge, station3'ü işleyen kuyruğa ESC/POS RAW fişi gönderir; merkezî kurulumda hedef `stationMapping.station3`, istasyona özel kurulumda `PRINTER_NAME` olur. Ürün başına modunda fiyat yazdırılmaz; sipariş bazlı modda tutarlar yazdırılır.
 
-Yeni `pending` siparişlerde Fırın (`station1`), Izgara (`station2`) ve Burger (`station4`) kategorileri yazdırılır. Sipariş kalemleri istasyonlarına yönlendirilir ve **her ürün satırı için ayrı, fiyatsız fiş** çıkar; miktar aynı fişte belirtilir. Kasa (`station3`) yazıcısı mutfak siparişi otomatik çıktısına dahil değildir; kasadan manuel yazdırılır. Tüm kasa ve mutfak fişleri Firestore'daki `counters/receipt-sequence` ortak, kalıcı sayacından numara alır (`00001`, `00002`, ...); bridge yeniden başlatıldığında sıra korunur.
+Yeni `pending` siparişlerde Fırın (`station1`), Izgara (`station2`), Burger (`station4`) ve Tatlı (`station5`) kategorileri yazdırılır. Sipariş kalemleri istasyonlarına yönlendirilir ve **her ürün satırı için ayrı, fiyatsız fiş** çıkar; miktar aynı fişte belirtilir. Kasa (`station3`) yazıcısı mutfak siparişi otomatik çıktısına dahil değildir; kasadan manuel yazdırılır. Tüm kasa ve mutfak fişleri Firestore'daki `counters/receipt-sequence` ortak, kalıcı sayacından numara alır (`00001`, `00002`, ...); bridge yeniden başlatıldığında sıra korunur.
 
 ## 📝 Notlar
 

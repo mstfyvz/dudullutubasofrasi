@@ -70,7 +70,7 @@ export interface Category {
   name: string;
   sortOrder: number;
   department?: ProductDepartment; // undefined = 'food'
-  kitchenStation?: string;        // 'station1' Fırın | 'station2' Izgara | 'station3' Kasa | 'station4' Burger
+  kitchenStation?: string;        // 'station1' Fırın | 'station2' Izgara | 'station3' Kasa | 'station4' Burger | 'station5' Tatlı
 }
 
 // ─── Clothing Sale ──────────────────────────
@@ -184,7 +184,7 @@ export interface GelAlSettings {
 // ─── Printer Settings (Firestore: settings/printer-config) ───
 export interface PrinterSettings {
   enabled: boolean;                         // Otomatik yazdırma aktif mi
-  stationMapping?: Record<string, string>;  // Legacy single-bridge mapping
+  stationMapping?: Record<string, string>;  // Windows printer queue per station in central mode
   bridgeUrl?: string;                       // Bridge service URL (varsayılan: http://localhost:3001)
   bridgeUrls?: Record<string, string>;      // Bridge URL per station
 }

@@ -75,7 +75,7 @@ src/
 ## 🚀 Başlangıç
 
 ### Gereksinimler
-- Node.js 16+
+- Node.js 20.19+ veya 22.12+
 - npm veya yarn
 
 ### Kurulum
