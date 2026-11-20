@@ -76,6 +76,26 @@ test('marks waiter package orders on kitchen tickets', () => {
   assert.match(output, /Masa 3 \(PAKET\)/);
 });
 
+test('marks only the selected product ticket as package', () => {
+  const order = { id: 'mixed-order', tableNumber: 3, tableLabel: 'Masa 3' };
+  const packageOutput = formatKitchenReceipt({
+    order,
+    item: { productName: 'Kebap', quantity: 1, isPackage: true },
+    station: 'station2',
+    receiptNumber: '00011',
+  }).toString('ascii');
+  const dineInOutput = formatKitchenReceipt({
+    order,
+    item: { productName: 'Ayran', quantity: 1, isPackage: false },
+    station: 'station2',
+    receiptNumber: '00012',
+  }).toString('ascii');
+
+  assert.match(packageOutput, /Masa 3 \(PAKET\)/);
+  assert.match(dineInOutput, /Masa 3\n/);
+  assert.doesNotMatch(dineInOutput, /\(PAKET\)/);
+});
+
 test('labels named takeaway kitchen tickets with the customer and package marker', () => {
   const named = formatKitchenReceipt({
     order: { id: 'takeaway-order', type: 'takeaway', customerName: 'Mustafa Yavuz' },

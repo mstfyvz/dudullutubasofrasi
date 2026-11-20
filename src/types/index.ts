@@ -109,6 +109,7 @@ export interface OrderItem {
   quantity: number;
   unitPrice: number;
   notes?: string;
+  isPackage?: boolean;
 }
 
 export interface Order {
@@ -197,4 +198,5 @@ export interface CartItem {
   unitPrice: number;
   quantity: number;
   notes?: string;
+  isPackage?: boolean;
 }

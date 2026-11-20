@@ -84,7 +84,7 @@ function formatKitchenReceipt({ order, item, station, receiptNumber }) {
     lines.push(customerName ? `${customerName} (PAKET)` : 'GEL AL SIPARIS (PAKET)');
   } else if (order.tableNumber) {
     const tableLabel = order.tableLabel || `MASA ${order.tableNumber}`;
-    lines.push(order.isPackage ? `${tableLabel} (PAKET)` : tableLabel);
+    lines.push(item.isPackage || order.isPackage ? `${tableLabel} (PAKET)` : tableLabel);
   } else {
     lines.push('GEL-AL');
   }

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { X, Plus, Minus, ShoppingCart, Send, ChefHat, ClipboardList, Trash2, Package } from 'lucide-react';
+import { X, Plus, Minus, ShoppingCart, Send, ChefHat, ClipboardList, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { onSnapshot, collection, query, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
@@ -37,7 +37,7 @@ export default function WaiterOrderSheet({ table, onClose }: Props) {
 
   const [tab, setTab] = useState<Tab>('new');
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [isPackage, setIsPackage] = useState(false);
+  const [packageProductIds, setPackageProductIds] = useState<Set<string>>(new Set());
   const [activeCategory, setActiveCategory] = useState<string>(categories[0]?.id ?? '');
   const [loading, setLoading] = useState(false);
   const [confirmSend, setConfirmSend] = useState(false);
@@ -85,11 +85,24 @@ export default function WaiterOrderSheet({ table, onClose }: Props) {
   // ── New order ──────────────────────────────────────────────────────────────
   const qty = (productId: string) => cart.find((i) => i.productId === productId)?.quantity ?? 0;
   const add = (product: (typeof products)[0]) => {
+    const isPackage = packageProductIds.has(product.id);
     setCart((prev) => {
       const ex = prev.find((i) => i.productId === product.id);
-      if (ex) return prev.map((i) => i.productId === product.id ? { ...i, quantity: i.quantity + 1 } : i);
-      return [...prev, { productId: product.id, productName: product.name, unitPrice: product.price, quantity: 1 }];
+      if (ex) return prev.map((i) => i.productId === product.id ? { ...i, quantity: i.quantity + 1, isPackage } : i);
+      return [...prev, { productId: product.id, productName: product.name, unitPrice: product.price, quantity: 1, isPackage }];
     });
+  };
+  const togglePackage = (productId: string) => {
+    const isPackage = !packageProductIds.has(productId);
+    setPackageProductIds((previous) => {
+      const next = new Set(previous);
+      if (isPackage) next.add(productId);
+      else next.delete(productId);
+      return next;
+    });
+    setCart((previous) => previous.map((item) =>
+      item.productId === productId ? { ...item, isPackage } : item
+    ));
   };
   const removeFromCart = (productId: string) => {
     setCart((prev) => prev.map((i) => i.productId === productId ? { ...i, quantity: i.quantity - 1 } : i).filter((i) => i.quantity > 0));
@@ -108,7 +121,6 @@ export default function WaiterOrderSheet({ table, onClose }: Props) {
         tableLabel: getTableDisplayName(table),
         tableSection: table.section ?? 'normal',
         ...(table.sessionId ? { sessionId: table.sessionId } : {}),
-        isPackage,
         items: cart.map((i) => {
           const product = products.find((candidate) => candidate.id === i.productId);
           return {
@@ -127,7 +139,7 @@ export default function WaiterOrderSheet({ table, onClose }: Props) {
       }
       toast.success(`${getTableDisplayName(table)} sipariş mutfağa gönderildi!`);
       setCart([]);
-      setIsPackage(false);
+      setPackageProductIds(new Set());
       setTab('existing');
     } catch {
       toast.error('Sipariş gönderilemedi. Tekrar deneyin.');
@@ -240,16 +252,6 @@ export default function WaiterOrderSheet({ table, onClose }: Props) {
                 </button>
               ))}
             </div>
-            <label className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={isPackage}
-                onChange={(event) => setIsPackage(event.target.checked)}
-                className="h-4 w-4 rounded accent-brand-600"
-              />
-              <Package className="h-4 w-4 text-brand-600" />
-              <span>Paket sipariş</span>
-            </label>
             <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
               {(grouped[activeCategory] ?? []).map((product) => {
                 const count = qty(product.id);
@@ -263,6 +265,16 @@ export default function WaiterOrderSheet({ table, onClose }: Props) {
                       <p className="text-brand-600 font-bold text-sm">{formatCurrency(product.price)}</p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
+                      <label className="flex items-center gap-1 text-[11px] font-medium text-gray-600 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={packageProductIds.has(product.id)}
+                          onChange={() => togglePackage(product.id)}
+                          className="h-4 w-4 rounded accent-brand-600"
+                          aria-label={`${product.name} paket`}
+                        />
+                        Paket
+                      </label>
                       {count > 0 ? (
                         <>
                           <button onClick={() => removeFromCart(product.id)} className="w-8 h-8 rounded-xl border border-gray-200 flex items-center justify-center hover:bg-gray-50">
