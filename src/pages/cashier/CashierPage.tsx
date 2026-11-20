@@ -280,7 +280,7 @@ export default function CashierPage({ mode }: Props = {}) {
   const addToNt = (p: typeof products[0]) => setNtCart((prev) => {
     const ex = prev.find((i) => i.productId === p.id);
     if (ex) return prev.map((i) => i.productId === p.id ? { ...i, quantity: i.quantity + 1 } : i);
-    return [...prev, { productId: p.id, productName: p.name, unitPrice: p.price, quantity: 1 }];
+    return [...prev, { productId: p.id, categoryId: p.category, productName: p.name, unitPrice: p.price, quantity: 1 }];
   });
   const removeFromNt = (pid: string) => setNtCart((prev) => prev.map((i) => i.productId === pid ? { ...i, quantity: i.quantity - 1 } : i).filter((i) => i.quantity > 0));
   const ntCount = ntCart.reduce((s, i) => s + i.quantity, 0);
@@ -290,20 +290,38 @@ export default function CashierPage({ mode }: Props = {}) {
     if (ntCart.length === 0) return;
     setNtLoading(true);
     try {
-      await addDoc(collection(db, 'orders'), {
+      const customerName = ntName.trim() || 'Kasa Siparişi';
+      const customerPhone = ntPhone.trim();
+      const items = ntCart.map((item) => ({
+        ...item,
+        categoryId: item.categoryId || products.find((product) => product.id === item.productId)?.category,
+      }));
+      const orderRef = await addDoc(collection(db, 'orders'), {
         type: 'takeaway',
         tableId: null,
         tableNumber: null,
         sessionId: null,
-        customerName: ntName.trim() || 'Kasa Siparişi',
-        customerPhone: ntPhone.trim() || '',
-        items: ntCart,
+        customerName,
+        customerPhone,
+        items,
         totalAmount: ntTotal,
         status: 'pending',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
       toast.success('Paket sipariş oluşturuldu.');
+      const now = new Date();
+      setReceiptOrder({
+        id: orderRef.id,
+        type: 'takeaway',
+        customerName,
+        customerPhone,
+        items,
+        totalAmount: ntTotal,
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      });
       setNtCart([]);
       setNtName('');
       setNtPhone('');

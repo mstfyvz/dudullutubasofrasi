@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { X, Plus, Minus, ShoppingCart, Send, ChefHat, ClipboardList, Trash2 } from 'lucide-react';
+import { X, Plus, Minus, ShoppingCart, Send, ChefHat, ClipboardList, Trash2, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { onSnapshot, collection, query, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
@@ -37,6 +37,7 @@ export default function WaiterOrderSheet({ table, onClose }: Props) {
 
   const [tab, setTab] = useState<Tab>('new');
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [isPackage, setIsPackage] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>(categories[0]?.id ?? '');
   const [loading, setLoading] = useState(false);
   const [confirmSend, setConfirmSend] = useState(false);
@@ -107,6 +108,7 @@ export default function WaiterOrderSheet({ table, onClose }: Props) {
         tableLabel: getTableDisplayName(table),
         tableSection: table.section ?? 'normal',
         ...(table.sessionId ? { sessionId: table.sessionId } : {}),
+        isPackage,
         items: cart.map((i) => {
           const product = products.find((candidate) => candidate.id === i.productId);
           return {
@@ -125,6 +127,7 @@ export default function WaiterOrderSheet({ table, onClose }: Props) {
       }
       toast.success(`${getTableDisplayName(table)} sipariş mutfağa gönderildi!`);
       setCart([]);
+      setIsPackage(false);
       setTab('existing');
     } catch {
       toast.error('Sipariş gönderilemedi. Tekrar deneyin.');
@@ -237,6 +240,16 @@ export default function WaiterOrderSheet({ table, onClose }: Props) {
                 </button>
               ))}
             </div>
+            <label className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={isPackage}
+                onChange={(event) => setIsPackage(event.target.checked)}
+                className="h-4 w-4 rounded accent-brand-600"
+              />
+              <Package className="h-4 w-4 text-brand-600" />
+              <span>Paket sipariş</span>
+            </label>
             <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
               {(grouped[activeCategory] ?? []).map((product) => {
                 const count = qty(product.id);

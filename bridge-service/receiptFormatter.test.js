@@ -65,6 +65,35 @@ test('formats kitchen product slips with individual ticket numbers and Turkish t
   assert.equal(decoded.endsWith('\x1DV\x42\x00\x1B@'), true);
 });
 
+test('marks waiter package orders on kitchen tickets', () => {
+  const output = formatKitchenReceipt({
+    order: { id: 'package-order', tableNumber: 3, tableLabel: 'Masa 3', isPackage: true },
+    item: { productName: 'Kebap', quantity: 1 },
+    station: 'station2',
+    receiptNumber: '00008',
+  }).toString('ascii');
+
+  assert.match(output, /Masa 3 \(PAKET\)/);
+});
+
+test('labels named takeaway kitchen tickets with the customer and package marker', () => {
+  const named = formatKitchenReceipt({
+    order: { id: 'takeaway-order', type: 'takeaway', customerName: 'Mustafa Yavuz' },
+    item: { productName: 'Pide', quantity: 1 },
+    station: 'station1',
+    receiptNumber: '00009',
+  }).toString('ascii');
+  const unnamed = formatKitchenReceipt({
+    order: { id: 'takeaway-order', type: 'takeaway' },
+    item: { productName: 'Pide', quantity: 1 },
+    station: 'station1',
+    receiptNumber: '00010',
+  }).toString('ascii');
+
+  assert.match(named, /Mustafa Yavuz \(PAKET\)/);
+  assert.match(unnamed, /GEL AL SIPARIS \(PAKET\)/);
+});
+
 test('labels burger station kitchen slips as BURGER', () => {
   const output = formatKitchenReceipt({
     order: { id: 'burger-order', tableNumber: 8 },

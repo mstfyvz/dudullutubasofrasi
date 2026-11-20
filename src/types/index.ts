@@ -120,6 +120,7 @@ export interface Order {
   tableLabel?: string;
   items: OrderItem[];
   status: OrderStatus;
+  isPackage?: boolean;
   tableSection?: TableSection;
   kitchenPrintRequestId?: string;
   kitchenPrintHandled?: Record<string, string>;
