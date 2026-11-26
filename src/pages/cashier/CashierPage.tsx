@@ -20,7 +20,7 @@ import toast from 'react-hot-toast';
 import TableTransferModal from '../../components/shared/TableTransferModal';
 import ReceiptModal from '../../components/cashier/ReceiptModal';
 import { usePrinterStore } from '../../stores/printerStore';
-import type { Order, OrderItem, Table } from '../../types';
+import type { CashDebt, Order, OrderItem, Table } from '../../types';
 
 type Tab = 'tables' | 'takeaway' | 'debts';
 
@@ -65,7 +65,7 @@ export default function CashierPage({ mode }: Props = {}) {
   const { user } = useAuthStore();
   const cashierLadiesOnly = !!user?.roles.includes('cashier_ladies') && !user.roles.includes('cashier') && !user.roles.includes('admin');
   const isLadiesView = mode === 'ladies' || location.pathname.endsWith('/ladies') || cashierLadiesOnly;
-  const { debts, loading: debtsLoading, subscribe: subscribeDebts, createTableDebt, createOrderDebt, recordPayment } = useDebtStore();
+  const { debts, loading: debtsLoading, subscribe: subscribeDebts, createTableDebt, createOrderDebt, updateDebt, recordPayment } = useDebtStore();
 
   const [tab, setTab] = useState<Tab>('tables');
   const [activeTableOrders, setActiveTableOrders] = useState<Order[]>([]);
@@ -80,6 +80,10 @@ export default function CashierPage({ mode }: Props = {}) {
   const [debtSearch, setDebtSearch] = useState('');
   const [paymentAmounts, setPaymentAmounts] = useState<Record<string, string>>({});
   const [payingDebtId, setPayingDebtId] = useState<string | null>(null);
+  const [editingDebtId, setEditingDebtId] = useState<string | null>(null);
+  const [editDebtItems, setEditDebtItems] = useState<OrderItem[]>([]);
+  const [editDebtDiscount, setEditDebtDiscount] = useState(false);
+  const [savingDebtId, setSavingDebtId] = useState<string | null>(null);
   const [showReceipt, setShowReceipt] = useState(false);
   const [closeAfterPrint, setCloseAfterPrint] = useState(false);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null); // takeaway fiş
@@ -410,6 +414,42 @@ export default function CashierPage({ mode }: Props = {}) {
         : error instanceof Error ? error.message : 'Açık hesap kaydedilemedi.');
     } finally {
       setClosingId(null);
+    }
+  };
+
+  const openDebtEditor = (debt: CashDebt) => {
+    setEditingDebtId(debt.id);
+    setEditDebtItems(debt.items.map((item) => ({ ...item })));
+    setEditDebtDiscount(debt.discountAmount > 0);
+  };
+
+  const saveDebtEdit = async (debt: CashDebt) => {
+    if (editDebtItems.length === 0) {
+      toast.error('Açık hesapta en az bir ürün bulunmalıdır.');
+      return;
+    }
+
+    setSavingDebtId(debt.id);
+    try {
+      const subtotal = editDebtItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+      const discountAmount = editDebtDiscount && settings.staffDiscount
+        ? Math.round(subtotal * (settings.staffDiscountRate ?? 0) / 100)
+        : 0;
+      const totalAmount = subtotal - discountAmount;
+      await updateDebt({
+        debtId: debt.id,
+        items: editDebtItems,
+        discountAmount,
+        totalAmount,
+      });
+      setEditingDebtId(null);
+      setEditDebtItems([]);
+      setEditDebtDiscount(false);
+      toast.success('Açık hesap güncellendi.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Açık hesap güncellenemedi.');
+    } finally {
+      setSavingDebtId(null);
     }
   };
 
@@ -999,9 +1039,20 @@ export default function CashierPage({ mode }: Props = {}) {
                               : debt.tableLabel ?? 'Masa'} · {debt.createdAt.toLocaleString('tr-TR')}
                         </p>
                       </div>
-                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${open ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
-                        {open ? 'Açık' : 'Ödendi'}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {open && editingDebtId !== debt.id && (
+                          <button
+                            type="button"
+                            onClick={() => openDebtEditor(debt)}
+                            className="rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-200"
+                          >
+                            Düzenle
+                          </button>
+                        )}
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${open ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                          {open ? 'Açık' : 'Ödendi'}
+                        </span>
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
                       <span>Toplam: <strong>{formatCurrency(debt.totalAmount)}</strong></span>
@@ -1043,7 +1094,107 @@ export default function CashierPage({ mode }: Props = {}) {
                         )}
                       </div>
                     </details>
-                    {open && (
+                    {open && editingDebtId === debt.id ? (
+                      <div className="border-t border-gray-100 pt-3 flex flex-col gap-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold text-gray-900">Açık Hesabı Düzenle</p>
+                          {settings.staffDiscount && (
+                            <button
+                              type="button"
+                              onClick={() => setEditDebtDiscount((value) => !value)}
+                              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${editDebtDiscount ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}
+                            >
+                              Personel İndirimi %{settings.staffDiscountRate ?? 0}
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          {editDebtItems.map((item, index) => (
+                            <div key={`${item.productId}-${index}`} className="flex items-center gap-2 rounded-lg bg-gray-50 p-2">
+                              <p className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900">{item.productName}</p>
+                              <button
+                                type="button"
+                                onClick={() => setEditDebtItems((items) => items
+                                  .map((entry, itemIndex) => itemIndex === index ? { ...entry, quantity: entry.quantity - 1 } : entry)
+                                  .filter((entry) => entry.quantity > 0))}
+                                className="h-7 w-7 rounded-lg border border-gray-200 bg-white flex items-center justify-center"
+                                aria-label={`${item.productName} çıkar`}
+                              >
+                                <Minus className="h-3 w-3" />
+                              </button>
+                              <span className="w-6 text-center text-sm font-bold">{item.quantity}</span>
+                              <button
+                                type="button"
+                                onClick={() => setEditDebtItems((items) => items
+                                  .map((entry, itemIndex) => itemIndex === index ? { ...entry, quantity: entry.quantity + 1 } : entry))}
+                                className="h-7 w-7 rounded-lg bg-brand-600 text-white flex items-center justify-center"
+                                aria-label={`${item.productName} ekle`}
+                              >
+                                <Plus className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                          {products.filter((product) => product.available).map((product) => (
+                            <button
+                              key={product.id}
+                              type="button"
+                              onClick={() => setEditDebtItems((items) => {
+                                const existing = items.find((item) => item.productId === product.id);
+                                if (existing) {
+                                  return items.map((item) => item.productId === product.id
+                                    ? { ...item, quantity: item.quantity + 1 }
+                                    : item);
+                                }
+                                return [...items, {
+                                  productId: product.id,
+                                  categoryId: product.category,
+                                  productName: product.name,
+                                  unitPrice: product.price,
+                                  quantity: 1,
+                                }];
+                              })}
+                              className="rounded-lg border border-gray-200 px-2 py-2 text-xs font-medium text-gray-700 hover:border-brand-300 hover:bg-brand-50"
+                            >
+                              + {product.name}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                          <span className="text-gray-600">Yeni toplam</span>
+                          <strong>
+                            {formatCurrency(Math.max(0,
+                              editDebtItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)
+                              - (editDebtDiscount && settings.staffDiscount
+                                ? Math.round(editDebtItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0) * (settings.staffDiscountRate ?? 0) / 100)
+                                : 0)
+                            ))}
+                          </strong>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingDebtId(null);
+                              setEditDebtItems([]);
+                              setEditDebtDiscount(false);
+                            }}
+                            className="btn-secondary flex-1"
+                          >
+                            Vazgeç
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void saveDebtEdit(debt)}
+                            disabled={savingDebtId === debt.id}
+                            className="btn-primary flex-1 disabled:opacity-50"
+                          >
+                            {savingDebtId === debt.id ? 'Kaydediliyor…' : 'Kaydet'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : open && (
                       <form
                         className="flex flex-col sm:flex-row gap-2 border-t border-gray-100 pt-3"
                         onSubmit={(event) => {

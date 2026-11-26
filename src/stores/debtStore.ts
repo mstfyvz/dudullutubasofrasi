@@ -43,12 +43,20 @@ interface CreateOrderDebtInput {
   accountType: 'takeaway' | 'counter';
 }
 
+interface UpdateDebtInput {
+  debtId: string;
+  items: OrderItem[];
+  discountAmount: number;
+  totalAmount: number;
+}
+
 interface DebtStore {
   debts: CashDebt[];
   loading: boolean;
   subscribe: (tableSection?: TableSection) => () => void;
   createTableDebt: (input: CreateTableDebtInput) => Promise<void>;
   createOrderDebt: (input: CreateOrderDebtInput) => Promise<void>;
+  updateDebt: (input: UpdateDebtInput) => Promise<void>;
   recordPayment: (debtId: string, amount: number) => Promise<void>;
 }
 
@@ -172,6 +180,52 @@ export const useDebtStore = create<DebtStore>((set) => ({
     });
 
     await batch.commit();
+  },
+
+  updateDebt: async (input) => {
+    if (!input.items.length) throw new Error('Açık hesapta en az bir ürün bulunmalıdır.');
+    if (!Number.isFinite(input.totalAmount) || input.totalAmount < 0) {
+      throw new Error('Açık hesap tutarı geçersiz.');
+    }
+
+    const debtRef = doc(db, 'cashDebts', input.debtId);
+    await runTransaction(db, async (transaction) => {
+      const debtSnapshot = await transaction.get(debtRef);
+      if (!debtSnapshot.exists()) throw new Error('Açık hesap bulunamadı.');
+
+      const data = debtSnapshot.data();
+      if (data.status !== 'open') throw new Error('Ödenmiş açık hesap düzenlenemez.');
+
+      const subtotal = input.items.reduce((sum, item) =>
+        sum + item.unitPrice * item.quantity, 0);
+      const discountAmount = Math.max(0, Math.min(subtotal, input.discountAmount));
+      const totalAmount = Math.max(0, subtotal - discountAmount);
+      const paidAmount = Number(data.paidAmount || 0);
+      if (paidAmount > totalAmount) {
+        throw new Error('Toplam tutar, tahsil edilen tutardan düşük olamaz.');
+      }
+
+      const orderIds = Array.isArray(data.orderIds) ? data.orderIds as string[] : [];
+      transaction.update(debtRef, {
+        items: input.items,
+        subtotal,
+        discountAmount,
+        totalAmount,
+        paidAmount,
+        status: paidAmount >= totalAmount ? 'paid' : 'open',
+        updatedAt: serverTimestamp(),
+      });
+
+      orderIds.forEach((orderId) => {
+        transaction.update(doc(db, 'orders', orderId), {
+          items: input.items,
+          totalAmount,
+          status: 'paid',
+          paymentStatus: 'credit',
+          updatedAt: serverTimestamp(),
+        });
+      });
+    });
   },
 
   recordPayment: async (debtId, amount) => {
