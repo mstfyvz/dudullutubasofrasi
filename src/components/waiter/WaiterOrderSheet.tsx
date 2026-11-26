@@ -129,6 +129,7 @@ export default function WaiterOrderSheet({ table, onClose }: Props) {
             productName: i.productName,
             quantity: i.quantity,
             unitPrice: i.unitPrice,
+            isPackage: i.isPackage === true,
           };
         }),
         status: 'pending',

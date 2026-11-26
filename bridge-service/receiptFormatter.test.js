@@ -67,8 +67,8 @@ test('formats kitchen product slips with individual ticket numbers and Turkish t
 
 test('marks waiter package orders on kitchen tickets', () => {
   const output = formatKitchenReceipt({
-    order: { id: 'package-order', tableNumber: 3, tableLabel: 'Masa 3', isPackage: true },
-    item: { productName: 'Kebap', quantity: 1 },
+    order: { id: 'package-order', tableNumber: 3, tableLabel: 'Masa 3' },
+    item: { productName: 'Kebap', quantity: 1, isPackage: true },
     station: 'station2',
     receiptNumber: '00008',
   }).toString('ascii');
