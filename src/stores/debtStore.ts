@@ -33,11 +33,22 @@ interface CreateTableDebtInput {
   mergedTableIds: string[];
 }
 
+interface CreateOrderDebtInput {
+  customerName: string;
+  orderIds: string[];
+  items: OrderItem[];
+  subtotal: number;
+  discountAmount: number;
+  totalAmount: number;
+  accountType: 'takeaway' | 'counter';
+}
+
 interface DebtStore {
   debts: CashDebt[];
   loading: boolean;
   subscribe: (tableSection?: TableSection) => () => void;
   createTableDebt: (input: CreateTableDebtInput) => Promise<void>;
+  createOrderDebt: (input: CreateOrderDebtInput) => Promise<void>;
   recordPayment: (debtId: string, amount: number) => Promise<void>;
 }
 
@@ -120,6 +131,42 @@ export const useDebtStore = create<DebtStore>((set) => ({
       batch.update(doc(db, 'tables', tableId), {
         status: 'available',
         mergedIntoId: null,
+        updatedAt: serverTimestamp(),
+      });
+    });
+
+    await batch.commit();
+  },
+
+  createOrderDebt: async (input) => {
+    if (!input.customerName.trim()) throw new Error('Müşteri adı boş olamaz.');
+    if (!input.orderIds.length) throw new Error('Borç oluşturmak için sipariş bulunamadı.');
+    if (!Number.isFinite(input.totalAmount) || input.totalAmount <= 0) {
+      throw new Error('Borç tutarı geçersiz.');
+    }
+
+    const batch = writeBatch(db);
+    const debtRef = doc(collection(db, 'cashDebts'));
+
+    batch.set(debtRef, {
+      customerName: input.customerName.trim(),
+      accountType: input.accountType,
+      orderIds: input.orderIds,
+      items: input.items,
+      subtotal: input.subtotal,
+      discountAmount: input.discountAmount,
+      totalAmount: input.totalAmount,
+      paidAmount: 0,
+      status: 'open',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
+    input.orderIds.forEach((orderId) => {
+      batch.update(doc(db, 'orders', orderId), {
+        status: 'paid',
+        paymentStatus: 'credit',
+        debtId: debtRef.id,
         updatedAt: serverTimestamp(),
       });
     });

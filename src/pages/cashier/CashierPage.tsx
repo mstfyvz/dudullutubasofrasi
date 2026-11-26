@@ -65,7 +65,7 @@ export default function CashierPage({ mode }: Props = {}) {
   const { user } = useAuthStore();
   const cashierLadiesOnly = !!user?.roles.includes('cashier_ladies') && !user.roles.includes('cashier') && !user.roles.includes('admin');
   const isLadiesView = mode === 'ladies' || location.pathname.endsWith('/ladies') || cashierLadiesOnly;
-  const { debts, loading: debtsLoading, subscribe: subscribeDebts, createTableDebt, recordPayment } = useDebtStore();
+  const { debts, loading: debtsLoading, subscribe: subscribeDebts, createTableDebt, createOrderDebt, recordPayment } = useDebtStore();
 
   const [tab, setTab] = useState<Tab>('tables');
   const [activeTableOrders, setActiveTableOrders] = useState<Order[]>([]);
@@ -293,7 +293,7 @@ export default function CashierPage({ mode }: Props = {}) {
     setNtLoading(true);
     try {
       const isCounterAccount = takeawayMode === 'counter';
-      const customerName = ntName.trim() || (isCounterAccount ? 'Kaçak Hesap' : 'Kasa Siparişi');
+      const customerName = ntName.trim() || (isCounterAccount ? 'Ekstra Hesap' : 'Kasa Siparişi');
       const customerPhone = ntPhone.trim();
       const items = ntCart.map((item) => ({
         ...item,
@@ -314,7 +314,7 @@ export default function CashierPage({ mode }: Props = {}) {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-      toast.success(isCounterAccount ? 'Kaçak hesap açıldı. Mutfağa gönderilmedi.' : 'Paket sipariş oluşturuldu.');
+      toast.success(isCounterAccount ? 'Ekstra hesap açıldı. Mutfağa gönderilmedi.' : 'Paket sipariş oluşturuldu.');
       const now = new Date();
       setReceiptOrder({
         id: orderRef.id,
@@ -530,9 +530,15 @@ export default function CashierPage({ mode }: Props = {}) {
   const ladiesBills = bills.filter((b) => b.table.section === 'ladies');
   const filteredDebts = debts.filter((debt) => {
     const search = debtSearch.trim().toLocaleLowerCase('tr-TR');
+    const accountLabel = debt.accountType === 'counter'
+      ? 'Ekstra Hesap'
+      : debt.accountType === 'takeaway'
+        ? 'Gel Al'
+        : debt.tableLabel ?? 'Masa';
     return !search
       || debt.customerName.toLocaleLowerCase('tr-TR').includes(search)
-      || debt.tableLabel.toLocaleLowerCase('tr-TR').includes(search);
+      || accountLabel.toLocaleLowerCase('tr-TR').includes(search)
+      || (debt.tableLabel?.toLocaleLowerCase('tr-TR').includes(search) ?? false);
   });
 
   const handleTestPrinter = async (station: typeof PRINTER_TEST_STATIONS[number]) => {
@@ -782,7 +788,7 @@ export default function CashierPage({ mode }: Props = {}) {
                 onClick={() => { setTakeawayMode('counter'); setNewTakeaway(true); setNtCart([]); setNtName(''); setNtPhone(''); }}
                 className="flex items-center justify-center gap-2 py-3 border-2 border-dashed border-orange-300 hover:border-orange-500 text-orange-700 hover:text-orange-800 rounded-xl text-sm font-semibold transition-colors bg-orange-50/50"
               >
-                <Banknote className="w-4 h-4" /> Kaçak Hesap Aç
+                <Banknote className="w-4 h-4" /> Ekstra Hesap Aç
               </button>
             </div>
           ) : (
@@ -790,7 +796,7 @@ export default function CashierPage({ mode }: Props = {}) {
               <div className="flex items-center justify-between">
                 <p className={`font-bold flex items-center gap-1.5 ${takeawayMode === 'counter' ? 'text-orange-700' : 'text-brand-700'}`}>
                   {takeawayMode === 'counter' ? <Banknote className="w-4 h-4" /> : <Package className="w-4 h-4" />}
-                  {takeawayMode === 'counter' ? 'Kaçak Hesap' : 'Yeni Paket Sipariş'}
+                  {takeawayMode === 'counter' ? 'Ekstra Hesap' : 'Yeni Paket Sipariş'}
                 </p>
                 <button onClick={() => { setNewTakeaway(false); setNtCart([]); }} className="p-1 rounded-lg hover:bg-gray-100"><X className="w-4 h-4 text-gray-500" /></button>
               </div>
@@ -853,7 +859,7 @@ export default function CashierPage({ mode }: Props = {}) {
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="font-bold text-gray-900">{order.customerName || 'İsimsiz Müşteri'}</p>
-                    {order.counterAccount && <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">Kaçak Hesap</span>}
+                    {order.counterAccount && <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">Ekstra Hesap</span>}
                   </div>
                   {order.customerPhone && <p className="text-xs text-gray-500">{order.customerPhone}</p>}
                 </div>
@@ -985,7 +991,13 @@ export default function CashierPage({ mode }: Props = {}) {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <h3 className="font-bold text-gray-900">{debt.customerName}</h3>
-                        <p className="text-sm text-gray-500">{debt.tableLabel} · {debt.createdAt.toLocaleString('tr-TR')}</p>
+                        <p className="text-sm text-gray-500">
+                          {debt.accountType === 'counter'
+                            ? 'Ekstra Hesap'
+                            : debt.accountType === 'takeaway'
+                              ? 'Gel Al'
+                              : debt.tableLabel ?? 'Masa'} · {debt.createdAt.toLocaleString('tr-TR')}
+                        </p>
                       </div>
                       <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${open ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
                         {open ? 'Açık' : 'Ödendi'}
@@ -1630,7 +1642,7 @@ export default function CashierPage({ mode }: Props = {}) {
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
             <h3 className="font-bold text-gray-900 text-lg">Emin misiniz? Hesap kapatılsın mı?</h3>
             <p className="text-sm text-gray-600 mt-2">
-              <strong>{confirmCloseTakeaway.order.customerName || (confirmCloseTakeaway.order.counterAccount ? 'Kaçak Hesap' : 'Gel Al Siparişi')}</strong> hesabındaki {formatCurrency(confirmCloseTakeaway.finalAmount ?? confirmCloseTakeaway.order.totalAmount)} tutarındaki paket sipariş kapatılacak.
+              <strong>{confirmCloseTakeaway.order.customerName || (confirmCloseTakeaway.order.counterAccount ? 'Ekstra Hesap' : 'Gel Al Siparişi')}</strong> hesabındaki {formatCurrency(confirmCloseTakeaway.finalAmount ?? confirmCloseTakeaway.order.totalAmount)} tutarındaki paket sipariş kapatılacak.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mt-5">
               <button
@@ -1639,6 +1651,41 @@ export default function CashierPage({ mode }: Props = {}) {
                 className="btn-secondary flex-1"
               >
                 Vazgeç
+              </button>
+              <button
+                onClick={async () => {
+                  const target = confirmCloseTakeaway;
+                  if (!target) return;
+                  setClosingId(target.order.id);
+                  try {
+                    await createOrderDebt({
+                      customerName: target.order.customerName || (target.order.counterAccount ? 'Ekstra Hesap' : 'Gel Al'),
+                      orderIds: [target.order.id],
+                      items: target.order.items,
+                      subtotal: target.order.totalAmount,
+                      discountAmount: target.finalAmount !== undefined
+                        ? target.order.totalAmount - target.finalAmount
+                        : 0,
+                      totalAmount: target.finalAmount ?? target.order.totalAmount,
+                      accountType: target.order.counterAccount ? 'counter' : 'takeaway',
+                    });
+                    setTwDiscountOrders((previous) => {
+                      const next = new Set(previous);
+                      next.delete(target.order.id);
+                      return next;
+                    });
+                    setConfirmCloseTakeaway(null);
+                    toast.success('Açık hesap kaydedildi.');
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : 'Açık hesap kaydedilemedi.');
+                  } finally {
+                    setClosingId(null);
+                  }
+                }}
+                disabled={!!closingId}
+                className="btn-secondary flex-1 border-orange-200 bg-orange-50 text-orange-800 disabled:opacity-50"
+              >
+                Açık Hesap
               </button>
               <button
                 onClick={() => {

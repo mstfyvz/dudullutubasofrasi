@@ -157,11 +157,17 @@ service cloud.firestore {
     // ── Kasa veresiye hesapları ────────────────────────────────────────────
     match /cashDebts/{debtId} {
       allow read: if isAdmin() || hasRole('cashier')
-                  || (hasRole('cashier_ladies') && resource.data.get('tableSection', '') == 'ladies');
+                  || (hasRole('cashier_ladies')
+                      && (resource.data.get('tableSection', '') == 'ladies'
+                          || resource.data.get('accountType', '') in ['takeaway', 'counter']));
       allow create: if isAdmin() || hasRole('cashier')
-                    || (hasRole('cashier_ladies') && request.resource.data.get('tableSection', '') == 'ladies');
+                    || (hasRole('cashier_ladies')
+                        && (request.resource.data.get('tableSection', '') == 'ladies'
+                            || request.resource.data.get('accountType', '') in ['takeaway', 'counter']));
       allow update: if isAdmin() || hasRole('cashier')
-                    || (hasRole('cashier_ladies') && resource.data.get('tableSection', '') == 'ladies');
+                    || (hasRole('cashier_ladies')
+                        && (resource.data.get('tableSection', '') == 'ladies'
+                            || resource.data.get('accountType', '') in ['takeaway', 'counter']));
       allow delete: if isAdmin();
 
       match /payments/{paymentId} {

@@ -146,9 +146,10 @@ export interface Order {
 export interface CashDebt {
   id: string;
   customerName: string;
-  tableId: string;
-  tableLabel: string;
+  tableId?: string;
+  tableLabel?: string;
   tableSection?: TableSection;
+  accountType?: 'table' | 'takeaway' | 'counter';
   orderIds: string[];
   items: OrderItem[];
   subtotal?: number;
