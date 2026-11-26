@@ -246,7 +246,7 @@ export default function CashierPage({ mode }: Props = {}) {
   const addToCart = (p: typeof products[0]) => setAddCart((prev) => {
     const ex = prev.find((i) => i.productId === p.id);
     if (ex) return prev.map((i) => i.productId === p.id ? { ...i, quantity: i.quantity + 1 } : i);
-    return [...prev, { productId: p.id, productName: p.name, unitPrice: p.price, quantity: 1 }];
+    return [...prev, { productId: p.id, categoryId: p.category, productName: p.name, unitPrice: p.price, quantity: 1 }];
   });
   const removeFromCart = (pid: string) => setAddCart((prev) => prev.map((i) => i.productId === pid ? { ...i, quantity: i.quantity - 1 } : i).filter((i) => i.quantity > 0));
   const cartCount = addCart.reduce((s, i) => s + i.quantity, 0);
@@ -263,6 +263,7 @@ export default function CashierPage({ mode }: Props = {}) {
         tableLabel: tableLabel(selectedBill.table),
         tableSection: selectedBill.table.section ?? 'normal',
         sessionId: selectedBill.sessionId ?? selectedBill.table.sessionId,
+        sendToKitchen: false,
         items: addCart,
         totalAmount: cartTotal,
         status: 'pending',
