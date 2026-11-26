@@ -93,6 +93,7 @@ export default function CashierPage({ mode }: Props = {}) {
 
   // New takeaway order
   const [newTakeaway, setNewTakeaway] = useState(false);
+  const [takeawayMode, setTakeawayMode] = useState<'kitchen' | 'counter'>('kitchen');
   const [ntName, setNtName] = useState('');
   const [ntPhone, setNtPhone] = useState('');
   const [ntCart, setNtCart] = useState<OrderItem[]>([]);
@@ -290,7 +291,8 @@ export default function CashierPage({ mode }: Props = {}) {
     if (ntCart.length === 0) return;
     setNtLoading(true);
     try {
-      const customerName = ntName.trim() || 'Kasa Siparişi';
+      const isCounterAccount = takeawayMode === 'counter';
+      const customerName = ntName.trim() || (isCounterAccount ? 'Kaçak Hesap' : 'Kasa Siparişi');
       const customerPhone = ntPhone.trim();
       const items = ntCart.map((item) => ({
         ...item,
@@ -298,6 +300,8 @@ export default function CashierPage({ mode }: Props = {}) {
       }));
       const orderRef = await addDoc(collection(db, 'orders'), {
         type: 'takeaway',
+        counterAccount: isCounterAccount,
+        sendToKitchen: !isCounterAccount,
         tableId: null,
         tableNumber: null,
         sessionId: null,
@@ -309,11 +313,13 @@ export default function CashierPage({ mode }: Props = {}) {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-      toast.success('Paket sipariş oluşturuldu.');
+      toast.success(isCounterAccount ? 'Kaçak hesap açıldı. Mutfağa gönderilmedi.' : 'Paket sipariş oluşturuldu.');
       const now = new Date();
       setReceiptOrder({
         id: orderRef.id,
         type: 'takeaway',
+        counterAccount: isCounterAccount,
+        sendToKitchen: !isCounterAccount,
         customerName,
         customerPhone,
         items,
@@ -764,16 +770,27 @@ export default function CashierPage({ mode }: Props = {}) {
         <div className="flex flex-col gap-4">
           {/* Yeni paket sipariş butonu / formu */}
           {!newTakeaway ? (
-            <button
-              onClick={() => { setNewTakeaway(true); setNtCart([]); setNtName(''); setNtPhone(''); }}
-              className="flex items-center justify-center gap-2 py-3 border-2 border-dashed border-brand-300 hover:border-brand-500 text-brand-600 hover:text-brand-700 rounded-xl text-sm font-semibold transition-colors bg-brand-50/50"
-            >
-              <Plus className="w-4 h-4" /> Yeni Paket Sipariş
-            </button>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                onClick={() => { setTakeawayMode('kitchen'); setNewTakeaway(true); setNtCart([]); setNtName(''); setNtPhone(''); }}
+                className="flex items-center justify-center gap-2 py-3 border-2 border-dashed border-brand-300 hover:border-brand-500 text-brand-600 hover:text-brand-700 rounded-xl text-sm font-semibold transition-colors bg-brand-50/50"
+              >
+                <Plus className="w-4 h-4" /> Yeni Paket Sipariş
+              </button>
+              <button
+                onClick={() => { setTakeawayMode('counter'); setNewTakeaway(true); setNtCart([]); setNtName(''); setNtPhone(''); }}
+                className="flex items-center justify-center gap-2 py-3 border-2 border-dashed border-orange-300 hover:border-orange-500 text-orange-700 hover:text-orange-800 rounded-xl text-sm font-semibold transition-colors bg-orange-50/50"
+              >
+                <Banknote className="w-4 h-4" /> Kaçak Hesap Aç
+              </button>
+            </div>
           ) : (
             <div className="border-2 border-brand-200 rounded-xl p-4 flex flex-col gap-3 bg-white shadow-sm">
               <div className="flex items-center justify-between">
-                <p className="font-bold text-brand-700 flex items-center gap-1.5"><Package className="w-4 h-4" /> Yeni Paket Sipariş</p>
+                <p className={`font-bold flex items-center gap-1.5 ${takeawayMode === 'counter' ? 'text-orange-700' : 'text-brand-700'}`}>
+                  {takeawayMode === 'counter' ? <Banknote className="w-4 h-4" /> : <Package className="w-4 h-4" />}
+                  {takeawayMode === 'counter' ? 'Kaçak Hesap' : 'Yeni Paket Sipariş'}
+                </p>
                 <button onClick={() => { setNewTakeaway(false); setNtCart([]); }} className="p-1 rounded-lg hover:bg-gray-100"><X className="w-4 h-4 text-gray-500" /></button>
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -812,7 +829,7 @@ export default function CashierPage({ mode }: Props = {}) {
                   <ShoppingCart className="w-4 h-4 text-brand-600 flex-shrink-0" />
                   <span className="text-sm text-gray-600 flex-1">{ntCount} ürün • {formatCurrency(ntTotal)}</span>
                   <button onClick={submitNtOrder} disabled={ntLoading} className="btn-primary px-4 py-2 text-sm flex items-center gap-1.5 disabled:opacity-60">
-                    {ntLoading ? 'Gönderiliyor…' : 'Siparişi Gönder'}
+                    {ntLoading ? 'Kaydediliyor…' : takeawayMode === 'counter' ? 'Hesap Aç' : 'Siparişi Gönder'}
                   </button>
                 </div>
               )}
@@ -832,7 +849,13 @@ export default function CashierPage({ mode }: Props = {}) {
             return (
             <div key={order.id} className="card flex flex-col gap-3">
               <div className="flex items-start justify-between gap-2">
-                <div><p className="font-bold text-gray-900">{order.customerName || 'İsimsiz Müşteri'}</p><p className="text-xs text-gray-500">{order.customerPhone}</p></div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-gray-900">{order.customerName || 'İsimsiz Müşteri'}</p>
+                    {order.counterAccount && <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">Kaçak Hesap</span>}
+                  </div>
+                  {order.customerPhone && <p className="text-xs text-gray-500">{order.customerPhone}</p>}
+                </div>
                 <div className="flex items-center gap-2">
                   {!isTwEditing && (
                     <button onClick={() => openEdit(order)} className="text-xs text-orange-600 bg-orange-50 hover:bg-orange-100 px-2.5 py-1 rounded-lg font-semibold transition-colors">
@@ -1232,6 +1255,7 @@ export default function CashierPage({ mode }: Props = {}) {
           tableNumber={selectedBill.table.number}
           tableLabel={tableLabel(selectedBill.table)}
           orders={selectedBill.orders}
+          initialMode="order"
           discountRate={discountRate}
           discountApplied={applyDiscount && !!settings.staffDiscount}
           onClose={() => {
@@ -1605,7 +1629,7 @@ export default function CashierPage({ mode }: Props = {}) {
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
             <h3 className="font-bold text-gray-900 text-lg">Emin misiniz? Hesap kapatılsın mı?</h3>
             <p className="text-sm text-gray-600 mt-2">
-              <strong>{confirmCloseTakeaway.order.customerName || 'Gel Al Siparişi'}</strong> hesabındaki {formatCurrency(confirmCloseTakeaway.finalAmount ?? confirmCloseTakeaway.order.totalAmount)} tutarındaki paket sipariş kapatılacak.
+              <strong>{confirmCloseTakeaway.order.customerName || (confirmCloseTakeaway.order.counterAccount ? 'Kaçak Hesap' : 'Gel Al Siparişi')}</strong> hesabındaki {formatCurrency(confirmCloseTakeaway.finalAmount ?? confirmCloseTakeaway.order.totalAmount)} tutarındaki paket sipariş kapatılacak.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mt-5">
               <button

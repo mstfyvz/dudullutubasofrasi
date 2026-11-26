@@ -122,6 +122,8 @@ export interface Order {
   items: OrderItem[];
   status: OrderStatus;
   isPackage?: boolean;
+  sendToKitchen?: boolean;
+  counterAccount?: boolean;
   tableSection?: TableSection;
   kitchenPrintRequestId?: string;
   kitchenPrintHandled?: Record<string, string>;

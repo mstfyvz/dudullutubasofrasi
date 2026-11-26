@@ -254,6 +254,8 @@ async function retryUnacknowledgedKitchenPrints() {
 }
 
 async function handleKitchenPrintRequest(order) {
+  if (order.counterAccount === true || order.sendToKitchen === false) return;
+
   const requestId = order.kitchenPrintRequestId;
   if (typeof requestId !== 'string' || requestId.length === 0) return;
 
@@ -306,6 +308,11 @@ async function handleKitchenPrintRequest(order) {
 
 // ─── Order Handler ───────────────────────────────────────────────────────────
 async function handleNewOrder(order) {
+  if (order.counterAccount === true || order.sendToKitchen === false) {
+    console.log('↪ Kaçak/kasa hesap siparişi mutfağa yönlendirilmedi:', order.id);
+    return;
+  }
+
   if (!printerSettings || !printerSettings.enabled) {
     console.log('⚠ Otomatik yazdırma kapalı, sipariş yazdırılmadı:', order.id);
     return;

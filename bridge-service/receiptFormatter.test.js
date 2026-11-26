@@ -76,6 +76,21 @@ test('marks waiter package orders on kitchen tickets', () => {
   assert.match(output, /Masa 3 \(PAKET\)/);
 });
 
+test('prints table and product names with larger ESC/POS text', () => {
+  const output = formatKitchenReceipt({
+    order: { id: 'large-text', tableNumber: 12, tableLabel: 'Masa 12' },
+    item: { productName: 'Adana Kebap', quantity: 2 },
+    station: 'station2',
+    receiptNumber: '00013',
+  });
+  const decoded = output.toString('ascii');
+
+  assert.match(decoded, /Masa 12/);
+  assert.match(decoded, /Adana Kebap/);
+  assert.match(decoded, /\x1D!\x11.*Masa 12.*\x1D!\x00/);
+  assert.match(decoded, /\x1D!\x11.*Adana Kebap.*\x1D!\x00/);
+});
+
 test('marks only the selected product ticket as package', () => {
   const order = { id: 'mixed-order', tableNumber: 3, tableLabel: 'Masa 3' };
   const packageOutput = formatKitchenReceipt({
@@ -92,7 +107,7 @@ test('marks only the selected product ticket as package', () => {
   }).toString('ascii');
 
   assert.match(packageOutput, /Masa 3 \(PAKET\)/);
-  assert.match(dineInOutput, /Masa 3\n/);
+  assert.match(dineInOutput, /Masa 3/);
   assert.doesNotMatch(dineInOutput, /\(PAKET\)/);
 });
 
@@ -110,8 +125,10 @@ test('labels named takeaway kitchen tickets with the customer and package marker
     receiptNumber: '00010',
   }).toString('ascii');
 
-  assert.match(named, /Mustafa Yavuz \(PAKET\)/);
-  assert.match(unnamed, /GEL AL SIPARIS \(PAKET\)/);
+  assert.match(named, /Mustafa Yavuz/);
+  assert.match(named, /\(PAKET\)/);
+  assert.match(unnamed, /GEL AL SIPARIS/);
+  assert.match(unnamed, /\(PAKET\)/);
 });
 
 test('labels burger station kitchen slips as BURGER', () => {

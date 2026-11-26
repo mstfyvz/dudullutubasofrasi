@@ -81,15 +81,15 @@ function formatKitchenReceipt({ order, item, station, receiptNumber }) {
 
   if (order.type === 'takeaway') {
     const customerName = order.customerName?.trim();
-    lines.push(customerName ? `${customerName} (PAKET)` : 'GEL AL SIPARIS (PAKET)');
+    lines.push(...formatLargeKitchenLine(customerName ? `${customerName} (PAKET)` : 'GEL AL SIPARIS (PAKET)'));
   } else if (order.tableNumber) {
     const tableLabel = order.tableLabel || `MASA ${order.tableNumber}`;
-    lines.push(item.isPackage || order.isPackage ? `${tableLabel} (PAKET)` : tableLabel);
+    lines.push(...formatLargeKitchenLine(item.isPackage || order.isPackage ? `${tableLabel} (PAKET)` : tableLabel));
   } else {
-    lines.push('GEL-AL');
+    lines.push(...formatLargeKitchenLine('GEL-AL'));
   }
   lines.push(getStationLabel(station), separator());
-  lines.push(...formatProduct(`${item.quantity}x ${item.productName}`));
+  lines.push(...formatLargeKitchenLine(`${item.quantity}x ${item.productName}`));
   if (item.notes) lines.push(...wrapText(`Not: ${item.notes}`, WIDTH).map((line) => toPrinterText(line)));
   lines.push(
     separator(),
@@ -156,6 +156,13 @@ function formatItem(label, amount, bold = false) {
 
 function formatProduct(label) {
   return wrapText(label, WIDTH).map((line) => `${ESC}E\x01${toPrinterText(line)}${ESC}E\x00`);
+}
+
+function formatLargeKitchenLine(label) {
+  const LARGE_WIDTH = 21;
+  return wrapText(label, LARGE_WIDTH).map((line) =>
+    `${GS}!\x11${ESC}E\x01${toPrinterText(line)}${ESC}E\x00${GS}!\x00`
+  );
 }
 
 function wrapText(value, width) {

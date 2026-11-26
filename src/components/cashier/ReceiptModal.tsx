@@ -17,6 +17,7 @@ interface Props {
   discountApplied?: boolean;
   onClose: () => void;
   onPrinted?: () => void;
+  initialMode?: PrintMode;
 }
 
 type PrintMode = 'order' | 'item';
@@ -46,8 +47,8 @@ type CashierReceiptPayload =
       finalTotal: number;
     };
 
-export default function ReceiptModal({ tableNumber, tableLabel, customerName, customerPhone, orders, discountRate = 0, discountApplied = false, onClose, onPrinted }: Props) {
-  const [mode, setMode] = useState<PrintMode>('item');
+export default function ReceiptModal({ tableNumber, tableLabel, customerName, customerPhone, orders, discountRate = 0, discountApplied = false, onClose, onPrinted, initialMode = 'item' }: Props) {
+  const [mode, setMode] = useState<PrintMode>(initialMode);
   const [printing, setPrinting] = useState(false);
   const [receiptCustomerName, setReceiptCustomerName] = useState(customerName ?? '');
   const { settings, subscribe } = usePrinterStore();
